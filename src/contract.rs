@@ -1,24 +1,25 @@
+use std::ptr::null;
+
+use cosmwasm_std::{
+    Addr, BankMsg, Binary, Deps, DepsMut, Env, from_binary, MessageInfo, Response, StdResult,
+    SubMsg, to_binary, WasmMsg,
+};
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::{
-    from_binary, to_binary, Addr, BankMsg, Binary, Deps, DepsMut, Env, MessageInfo, Response,
-    StdResult, SubMsg, WasmMsg,
-};
-use sha2::{Digest, Sha256};
-
-use cw2::set_contract_version;
 use cw20::{Balance, Cw20Coin, Cw20CoinVerified, Cw20ExecuteMsg, Cw20ReceiveMsg};
+use cw2::set_contract_version;
+use cw_storage_plus::Bound;
+use sha2::{Digest, Sha256};
 
 use crate::error::ContractError;
 use crate::msg::{
-    is_valid_name, BalanceHuman, CreateMsg, DetailsResponse, ExecuteMsg, InstantiateMsg,
+    BalanceHuman, CreateMsg, DetailsResponse, ExecuteMsg, InstantiateMsg, is_valid_name,
     ListResponse, QueryMsg, ReceiveMsg,
 };
-use crate::state::{all_swap_ids, AtomicSwap, SWAPS};
-use cw_storage_plus::Bound;
+use crate::state::{all_swap_ids, AtomicSwap, BuyOrder, State, STATE, SWAPS};
 
 // Version info, for migration info
-const CONTRACT_NAME: &str = "crates.io:cw20-atomic-swap";
+const CONTRACT_NAME: &str = "swap-atomic-rust";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -28,8 +29,12 @@ pub fn instantiate(
     _info: MessageInfo,
     _msg: InstantiateMsg,
 ) -> StdResult<Response> {
+    let state = State {
+        orders: vec![],
+        owner: info.sender.clone(),
+    };
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
-    // No setup
+    STATE.save(deps.storage, &state)?;
     Ok(Response::default())
 }
 
@@ -209,6 +214,39 @@ fn send_tokens(to: &Addr, amount: Balance) -> StdResult<Vec<SubMsg>> {
     }
 }
 
+
+fn execute_create_buy_order(amount: Amount, price: u32, to: &Addr) -> Result<Response, ContractError> {
+    if _blt_amount < 0 && _eth_price < 0 {
+        return Err(ContractError::WrongAmount {});
+    }
+    state_update(deps: DepsMut, BuyOrder { amount, price, order_owner: to.into, operation_mode: 0 });
+
+    execute_check_orders_match(amount, price, 1);
+    Ok(Response::new().add_attribute("action", "create order"))
+}
+
+
+fn execute_create_sell_order(amount: Amount, price: u32) -> Result<Response, ContractError> {
+    if _blt_amount < 0 && _eth_price < 0 {
+        return Err(ContractError::WrongAmount {});
+    }
+    state_update(deps: DepsMut, BuyOrder { amount, price, order_owner: to.into, operation_mode: 1 });
+
+    execute_check_orders_match(amount, price, 0);
+    Ok(Response::new().add_attribute("action", "sell order"))
+}
+
+fn state_update(deps: DepsMut, order: BuyOrder) {
+    STATE.update(deps.storage, |mut state| -> Result<_, ContractError> {
+        state.orders.push(order);
+        Ok(state)
+    })?;
+}
+
+fn execute_check_orders_match(amount: Amount, price: u32, _operation_mode: u32) {
+// TODO
+}
+
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
@@ -257,11 +295,41 @@ fn query_list(
     })
 }
 
+fn query_order_info(deps: Deps, index: usize) -> BuyOrder {
+    let state = STATE.load(deps.storage)?;
+    return state.orders[index].clone();
+}
+
+fn query_get_all_orders(deps: Deps) -> Vec<BuyOrder> {
+    let state = STATE.load(deps.storage)?;
+    return state.orders;
+}
+
+fn query_get_contract_address(deps: Deps) -> Addr {
+    let state = STATE.load(deps.storage)?;
+    return state.owner;
+}
+
+fn query_remove_order(deps: DepsMut, info: MessageInfo, index: usize) {
+    STATE.update(deps.storage, |mut state| -> Result<_, ContractError> {
+        if info.sender != state.owner {
+            return Err(ContractError::Unauthorized {});
+        }
+        for (i, order) in state.orders.iter().enumerate() {
+//TODO
+        }
+        Ok(state)
+    })?;
+
+}
+fn query_chech_account_balance(){
+    //TODO
+}
+
 #[cfg(test)]
 mod tests {
-    use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
     use cosmwasm_std::{coins, from_binary, StdError, Timestamp, Uint128};
-
+    use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
     use cw20::Expiration;
 
     use super::*;
@@ -324,7 +392,7 @@ mod tests {
                 info.clone(),
                 ExecuteMsg::Create(create.clone()),
             )
-            .unwrap_err();
+                .unwrap_err();
             assert_eq!(err, ContractError::InvalidId {});
         }
 
@@ -412,7 +480,7 @@ mod tests {
             info,
             ExecuteMsg::Create(create.clone()),
         )
-        .unwrap();
+            .unwrap();
 
         // Anyone can attempt release
         let info = mock_info("somebody", &[]);
@@ -560,7 +628,7 @@ mod tests {
             info,
             ExecuteMsg::Create(create1.clone()),
         )
-        .unwrap();
+            .unwrap();
 
         let info = mock_info(&sender2, &balance);
         let create2 = CreateMsg {
@@ -575,7 +643,7 @@ mod tests {
             info,
             ExecuteMsg::Create(create2.clone()),
         )
-        .unwrap();
+            .unwrap();
 
         // Get the list of ids
         let query_msg = QueryMsg::List {
@@ -680,7 +748,7 @@ mod tests {
             info,
             ExecuteMsg::Receive(receive),
         )
-        .unwrap();
+            .unwrap();
         assert_eq!(0, res.messages.len());
         assert_eq!(("action", "create"), res.attributes[0]);
 
@@ -696,7 +764,7 @@ mod tests {
                 preimage: preimage(),
             },
         )
-        .unwrap();
+            .unwrap();
         assert_eq!(1, res.messages.len());
         assert_eq!(("action", "release"), res.attributes[0]);
         assert_eq!(("id", cw20_swap_id), res.attributes[1]);

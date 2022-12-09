@@ -1,10 +1,14 @@
 use cosmwasm_schema::cw_serde;
 
 use cosmwasm_std::{Addr, Binary, BlockInfo, Order, StdResult, Storage};
-use cw_storage_plus::{Bound, Map};
+use cw_storage_plus::{Bound, Map, Item};
 
 use cw20::{Balance, Expiration};
-
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+pub struct State {
+    pub orders: Vec<BuyOrder>,
+    pub owner: Addr,
+}
 #[cw_serde]
 pub struct AtomicSwap {
     /// This is the sha-256 hash of the preimage
@@ -16,13 +20,21 @@ pub struct AtomicSwap {
     pub balance: Balance,
 }
 
+pub struct BuyOrder {
+    pub amount: Amount,
+    pub price: u32,
+    pub order_owner: Addr,
+    pub operation_mode: u32,
+}
+
 impl AtomicSwap {
     pub fn is_expired(&self, block: &BlockInfo) -> bool {
         self.expires.is_expired(block)
     }
 }
-
+pub const STATE: Item<State> = Item::new("state");
 pub const SWAPS: Map<&str, AtomicSwap> = Map::new("atomic_swap");
+pub const ALL_ORDERS: Vec<BuyOrder> = Vec::new();
 
 /// This returns the list of ids for all active swaps
 pub fn all_swap_ids<'a>(

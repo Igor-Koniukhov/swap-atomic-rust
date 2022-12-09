@@ -29,4 +29,10 @@ pub enum ContractError {
 
     #[error("Atomic swap already exists")]
     AlreadyExists,
+
+    #[error("Wrong amount of tokens for creating order")]
+    WrongAmount,
+
+    #[error("Account doesn`t have enough custom tokens to buy some tokens")]
+    AccountsLackTokens,
 }
